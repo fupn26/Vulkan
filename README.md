@@ -39,7 +39,7 @@ As I've been involved with getting the official repository up and running, I'll 
 This repository contains submodules for external dependencies, so when doing a fresh clone you need to clone recursively:
 
 ```
-git clone --recursive https://github.com/SaschaWillems/Vulkan.git
+git clone --recursive https://github.com/fupn26/Vulkan.git
 ```
 
 Existing repositories can be updated manually:
