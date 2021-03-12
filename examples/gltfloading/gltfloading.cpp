@@ -17,18 +17,6 @@
  * If you are looking for a complete glTF implementation, check out https://github.com/SaschaWillems/Vulkan-glTF-PBR/
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <vector>
-
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE_WRITE
@@ -37,9 +25,7 @@
 #endif
 #include "tiny_gltf.h"
 
-#include <vulkan/vulkan.h>
 #include "vulkanexamplebase.h"
-#include "VulkanTexture.hpp"
 
 #define ENABLE_VALIDATION false
 
@@ -97,14 +83,14 @@ public:
 		glm::mat4 matrix;
 	};
 
-	// A glTF material stores information in e.g. the exture that is attached to it and colors
+	// A glTF material stores information in e.g. the texture that is attached to it and colors
 	struct Material {
 		glm::vec4 baseColorFactor = glm::vec4(1.0f);
 		uint32_t baseColorTextureIndex;
 	};
 
 	// Contains the texture for a single glTF image
-	// Images may be reused by texture objects and are as such separted
+	// Images may be reused by texture objects and are as such separated
 	struct Image {
 		vks::Texture2D texture;
 		// We also store (and create) a descriptor set that's used to access this texture from the fragment shader
@@ -235,7 +221,7 @@ public:
 			}
 		}
 
-		// If the node contains mesh data, we load vertices and indices from the the buffers
+		// If the node contains mesh data, we load vertices and indices from the buffers
 		// In glTF this is done via accessors and buffer views
 		if (inputNode.mesh > -1) {
 			const tinygltf::Mesh mesh = input.meshes[inputNode.mesh];
@@ -346,7 +332,7 @@ public:
 	void drawNode(VkCommandBuffer commandBuffer, VkPipelineLayout pipelineLayout, VulkanglTFModel::Node node)
 	{
 		if (node.mesh.primitives.size() > 0) {
-			// Pass the node's matrix via push constanst
+			// Pass the node's matrix via push constants
 			// Traverse the node hierarchy to the top-most parent to get the final matrix of the current node
 			glm::mat4 nodeMatrix = node.matrix;
 			VulkanglTFModel::Node* currentParent = node.parent;
@@ -555,7 +541,7 @@ public:
 			&indexStaging.memory,
 			indexBuffer.data()));
 
-		// Create device local buffers (targat)
+		// Create device local buffers (target)
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,

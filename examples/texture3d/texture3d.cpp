@@ -6,25 +6,7 @@
 * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <vector>
-#include <random>
-#include <numeric>
-#include <ctime>
-
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-#include <vulkan/vulkan.h>
 #include "vulkanexamplebase.h"
-#include "VulkanDevice.hpp"
-#include "VulkanBuffer.hpp"
-#include "VulkanModel.hpp"
 
 #define VERTEX_BUFFER_BIND_ID 0
 #define ENABLE_VALIDATION false
@@ -158,10 +140,6 @@ public:
 		uint32_t width, height, depth;
 		uint32_t mipLevels;
 	} texture;
-
-	struct {
-		vks::Model cube;
-	} models;
 
 	struct {
 		VkPipelineVertexInputStateCreateInfo inputState;
@@ -330,11 +308,11 @@ public:
 		const float noiseScale = static_cast<float>(rand() % 10) + 4.0f;
 
 #pragma omp parallel for
-		for (uint32_t z = 0; z < texture.depth; z++)
+		for (int32_t z = 0; z < texture.depth; z++)
 		{
-			for (uint32_t y = 0; y < texture.height; y++)
+			for (int32_t y = 0; y < texture.height; y++)
 			{
-				for (uint32_t x = 0; x < texture.width; x++)
+				for (int32_t x = 0; x < texture.width; x++)
 				{
 					float nx = (float)x / (float)texture.width;
 					float ny = (float)y / (float)texture.height;
@@ -503,7 +481,7 @@ public:
 	{
 		VulkanExampleBase::prepareFrame();
 
-		// Command buffer to be sumitted to the queue
+		// Command buffer to be submitted to the queue
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &drawCmdBuffers[currentBuffer];
 

@@ -6,22 +6,7 @@
 * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <time.h>
-#include <vector>
-
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-#include <vulkan/vulkan.h>
 #include "vulkanexamplebase.h"
-#include "VulkanTexture.hpp"
-#include "VulkanBuffer.hpp"
 #include <ktx.h>
 #include <ktxvulkan.h>
 
@@ -61,7 +46,7 @@ public:
 			glm::mat4 projection;
 			glm::mat4 view;
 		} matrices;
-		// Seperate data for each instance
+		// Separate data for each instance
 		UboInstanceData *instance;
 	} uboVS;
 
@@ -287,28 +272,9 @@ public:
 		ktxTexture_Destroy(ktxTexture);
 	}
 
-	void loadTextures()
+	void loadAssets()
 	{
-		// Vulkan core supports three different compressed texture formats
-		// As the support differs between implemementations we need to check device features and select a proper format and file
-		std::string filename;
-		VkFormat format;
-		if (deviceFeatures.textureCompressionBC) {
-			filename = "texturearray_bc3_unorm.ktx";
-			format = VK_FORMAT_BC3_UNORM_BLOCK;
-		}
-		else if (deviceFeatures.textureCompressionASTC_LDR) {
-			filename = "texturearray_astc_8x8_unorm.ktx";
-			format = VK_FORMAT_ASTC_8x8_UNORM_BLOCK;
-		}
-		else if (deviceFeatures.textureCompressionETC2) {
-			filename = "texturearray_etc2_unorm.ktx";
-			format = VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK;
-		}
-		else {
-			vks::tools::exitFatal("Device does not support any compressed texture format!", VK_ERROR_FEATURE_NOT_PRESENT);
-		}
-		loadTextureArray(getAssetPath() + "textures/" + filename, format);
+		loadTextureArray(getAssetPath() + "textures/texturearray_rgba.ktx", VK_FORMAT_R8G8B8A8_UNORM);
 	}
 
 	void buildCommandBuffers()
@@ -485,7 +451,7 @@ public:
 		vertexInputStateCI.vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexInputAttributes.size());
 		vertexInputStateCI.pVertexAttributeDescriptions = vertexInputAttributes.data();
 
-		// Instacing pipeline
+		// Instancing pipeline
 		std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages;
 
 		shaderStages[0] = loadShader(getShadersPath() + "texturearray/instancing.vert.spv", VK_SHADER_STAGE_VERTEX_BIT);
@@ -565,7 +531,7 @@ public:
 	void prepare()
 	{
 		VulkanExampleBase::prepare();
-		loadTextures();
+		loadAssets();
 		generateCube();
 		prepareUniformBuffers();
 		setupDescriptorSetLayout();

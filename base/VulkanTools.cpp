@@ -68,6 +68,7 @@ namespace vks
 				STR(INTEGRATED_GPU);
 				STR(DISCRETE_GPU);
 				STR(VIRTUAL_GPU);
+				STR(CPU);
 #undef STR
 			default: return "UNKNOWN_DEVICE_TYPE";
 			}
@@ -288,7 +289,7 @@ namespace vks
 				1, &imageMemoryBarrier);
 		}
 
-		void exitFatal(std::string message, int32_t exitCode)
+		void exitFatal(const std::string& message, int32_t exitCode)
 		{
 #if defined(_WIN32)
 			if (!errorModeSilent) {
@@ -304,7 +305,7 @@ namespace vks
 #endif
 		}
 
-		void exitFatal(std::string message, VkResult resultCode)
+		void exitFatal(const std::string& message, VkResult resultCode)
 		{
 			exitFatal(message, (int32_t)resultCode);
 		}
@@ -367,7 +368,7 @@ namespace vks
 			}
 			else
 			{
-				std::cerr << "Error: Could not open shader file \"" << fileName << "\"" << std::endl;
+				std::cerr << "Error: Could not open shader file \"" << fileName << "\"" << "\n";
 				return VK_NULL_HANDLE;
 			}
 		}
@@ -378,5 +379,11 @@ namespace vks
 			std::ifstream f(filename.c_str());
 			return !f.fail();
 		}
+
+		uint32_t alignedSize(uint32_t value, uint32_t alignment)
+        {
+	        return (value + alignment - 1) & ~(alignment - 1);
+        }
+
 	}
 }

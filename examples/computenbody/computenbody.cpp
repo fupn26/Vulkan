@@ -6,21 +6,7 @@
 * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <vector>
-#include <random>
-
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-#include <vulkan/vulkan.h>
 #include "vulkanexamplebase.h"
-#include "VulkanTexture.hpp"
 
 #define VERTEX_BUFFER_BIND_ID 0
 #define ENABLE_VALIDATION false
@@ -278,7 +264,7 @@ public:
 		bufferBarrier.size = compute.storageBuffer.descriptor.range;
 		bufferBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
 		bufferBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		// Transfer ownership if compute and graphics queue familiy indices differ
+		// Transfer ownership if compute and graphics queue family indices differ
 		bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 

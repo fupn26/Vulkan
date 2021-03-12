@@ -8,21 +8,7 @@
 * This code is licensed under the MIT license (MIT) (http://opensource.org/licenses/MIT)
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <vector>
-#include <random>
-
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
-#include <vulkan/vulkan.h>
 #include "vulkanexamplebase.h"
-#include "VulkanTexture.hpp"
 
 #define VERTEX_BUFFER_BIND_ID 0
 #define ENABLE_VALIDATION false
@@ -86,7 +72,7 @@ public:
 	struct Particle {
 		glm::vec2 pos;								// Particle position
 		glm::vec2 vel;								// Particle velocity
-		glm::vec4 gradientPos;						// Texture coordiantes for the gradient ramp map
+		glm::vec4 gradientPos;						// Texture coordinates for the gradient ramp map
 	};
 
 	VulkanExample() : VulkanExampleBase(ENABLE_VALIDATION)

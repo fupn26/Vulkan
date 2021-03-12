@@ -8,6 +8,13 @@
 
 #include "vulkanexamplebase.h"
 
+#if (defined(VK_USE_PLATFORM_MACOS_MVK) && defined(VK_EXAMPLE_XCODE_GENERATED))
+#include <Cocoa/Cocoa.h>
+#include <Carbon/Carbon.h>
+#include <QuartzCore/CAMetalLayer.h>
+#include <CoreVideo/CVDisplayLink.h>
+#endif
+
 std::vector<const char*> VulkanExampleBase::args;
 
 VkResult VulkanExampleBase::createInstance(bool enableValidation)
@@ -34,6 +41,8 @@ VkResult VulkanExampleBase::createInstance(bool enableValidation)
 	instanceExtensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
 #elif defined(_DIRECT2DISPLAY)
 	instanceExtensions.push_back(VK_KHR_DISPLAY_EXTENSION_NAME);
+#elif defined(VK_USE_PLATFORM_DIRECTFB_EXT)
+	instanceExtensions.push_back(VK_EXT_DIRECTFB_SURFACE_EXTENSION_NAME);
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 	instanceExtensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
 #elif defined(VK_USE_PLATFORM_XCB_KHR)
@@ -44,8 +53,31 @@ VkResult VulkanExampleBase::createInstance(bool enableValidation)
 	instanceExtensions.push_back(VK_MVK_MACOS_SURFACE_EXTENSION_NAME);
 #endif
 
-	if (enabledInstanceExtensions.size() > 0) {
-		for (auto enabledExtension : enabledInstanceExtensions) {
+	// Get extensions supported by the instance and store for later use
+	uint32_t extCount = 0;
+	vkEnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
+	if (extCount > 0)
+	{
+		std::vector<VkExtensionProperties> extensions(extCount);
+		if (vkEnumerateInstanceExtensionProperties(nullptr, &extCount, &extensions.front()) == VK_SUCCESS)
+		{
+			for (VkExtensionProperties extension : extensions)
+			{
+				supportedInstanceExtensions.push_back(extension.extensionName);
+			}
+		}
+	}
+
+	// Enabled requested instance extensions
+	if (enabledInstanceExtensions.size() > 0) 
+	{
+		for (const char * enabledExtension : enabledInstanceExtensions) 
+		{
+			// Output message if requested extension is not available
+			if (std::find(supportedInstanceExtensions.begin(), supportedInstanceExtensions.end(), enabledExtension) == supportedInstanceExtensions.end())
+			{
+				std::cerr << "Enabled instance extension \"" << enabledExtension << "\" is not present at instance level\n";
+			}
 			instanceExtensions.push_back(enabledExtension);
 		}
 	}
@@ -63,11 +95,12 @@ VkResult VulkanExampleBase::createInstance(bool enableValidation)
 		instanceCreateInfo.enabledExtensionCount = (uint32_t)instanceExtensions.size();
 		instanceCreateInfo.ppEnabledExtensionNames = instanceExtensions.data();
 	}
+
+	// The VK_LAYER_KHRONOS_validation contains all current validation functionality.
+	// Note that on Android this layer requires at least NDK r20
+	const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
 	if (settings.validation)
 	{
-		// The VK_LAYER_KHRONOS_validation contains all current validation functionality.
-		// Note that on Android this layer requires at least NDK r20
-		const char* validationLayerName = "VK_LAYER_KHRONOS_validation";
 		// Check if this layer is available at instance level
 		uint32_t instanceLayerCount;
 		vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr);
@@ -178,7 +211,7 @@ VkPipelineShaderStageCreateInfo VulkanExampleBase::loadShader(std::string fileNa
 #else
 	shaderStage.module = vks::tools::loadShader(fileName.c_str(), device);
 #endif
-	shaderStage.pName = "main"; // todo : make param
+	shaderStage.pName = "main";
 	assert(shaderStage.module != VK_NULL_HANDLE);
 	shaderModules.push_back(shaderStage.module);
 	return shaderStage;
@@ -407,6 +440,48 @@ void VulkanExampleBase::renderLoop()
 		}
 		updateOverlay();
 	}
+#elif defined(VK_USE_PLATFORM_DIRECTFB_EXT)
+	while (!quit)
+	{
+		auto tStart = std::chrono::high_resolution_clock::now();
+		if (viewUpdated)
+		{
+			viewUpdated = false;
+			viewChanged();
+		}
+		DFBWindowEvent event;
+		while (!event_buffer->GetEvent(event_buffer, DFB_EVENT(&event)))
+		{
+			handleEvent(&event);
+		}
+		render();
+		frameCounter++;
+		auto tEnd = std::chrono::high_resolution_clock::now();
+		auto tDiff = std::chrono::duration<double, std::milli>(tEnd - tStart).count();
+		frameTimer = tDiff / 1000.0f;
+		camera.update(frameTimer);
+		if (camera.moving())
+		{
+			viewUpdated = true;
+		}
+		// Convert to clamped timer value
+		if (!paused)
+		{
+			timer += timerSpeed * frameTimer;
+			if (timer > 1.0)
+			{
+				timer -= 1.0f;
+			}
+		}
+		float fpsTimer = std::chrono::duration<double, std::milli>(tEnd - lastTimestamp).count();
+		if (fpsTimer > 1000.0f)
+		{
+			lastFPS = (float)frameCounter * (1000.0f / fpsTimer);
+			frameCounter = 0;
+			lastTimestamp = tEnd;
+		}
+		updateOverlay();
+	}
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 	while (!quit)
 	{
@@ -509,6 +584,8 @@ void VulkanExampleBase::renderLoop()
 		}
 		updateOverlay();
 	}
+#elif (defined(VK_USE_PLATFORM_MACOS_MVK) && defined(VK_EXAMPLE_XCODE_GENERATED))
+	[NSApp run];
 #endif
 	// Flush device to make sure all resources can be freed
 	if (device != VK_NULL_HANDLE) {
@@ -617,90 +694,63 @@ VulkanExampleBase::VulkanExampleBase(bool enableValidation)
 		std::string msg = "Could not locate asset path in \"" + getAssetPath() + "\" !";
 		MessageBox(NULL, msg.c_str(), "Fatal error", MB_OK | MB_ICONERROR);
 #else
-		std::cerr << "Error: Could not find asset path in " << getAssetPath() << std::endl;
+		std::cerr << "Error: Could not find asset path in " << getAssetPath() << "\n";
 #endif
 		exit(-1);
 	}
 #endif
 
 	settings.validation = enableValidation;
-
-	char* numConvPtr;
-
-	// Parse command line arguments
-	for (size_t i = 0; i < args.size(); i++)
-	{
-		if (args[i] == std::string("-validation")) {
-			settings.validation = true;
+	
+	// Command line arguments
+	commandLineParser.parse(args);
+	if (commandLineParser.isSet("help")) {
+#if defined(_WIN32)
+		setupConsole("Vulkan example");
+#endif
+		commandLineParser.printHelp();
+		std::cin.get();
+		exit(0);
+	}
+	if (commandLineParser.isSet("validation")) {
+		settings.validation = true;
+	}
+	if (commandLineParser.isSet("vsync")) {
+		settings.vsync = true;
+	}
+	if (commandLineParser.isSet("height")) {
+		height = commandLineParser.getValueAsInt("height", width);
+	}
+	if (commandLineParser.isSet("width")) {
+		width = commandLineParser.getValueAsInt("width", width);
+	}
+	if (commandLineParser.isSet("fullscreen")) {
+		settings.fullscreen = true;
+	}
+	if (commandLineParser.isSet("shaders")) {
+		std::string value = commandLineParser.getValueAsString("shaders", "glsl");
+		if ((value != "glsl") && (value != "hlsl")) {
+			std::cerr << "Shader type must be one of 'glsl' or 'hlsl'\n";
 		}
-		if (args[i] == std::string("-vsync")) {
-			settings.vsync = true;
+		else {
+			shaderDir = value;
 		}
-		if ((args[i] == std::string("-f")) || (args[i] == std::string("--fullscreen"))) {
-			settings.fullscreen = true;
-		}
-		if ((args[i] == std::string("-w")) || (args[i] == std::string("-width"))) {
-			uint32_t w = strtol(args[i + 1], &numConvPtr, 10);
-			if (numConvPtr != args[i + 1]) { width = w; };
-		}
-		if ((args[i] == std::string("-h")) || (args[i] == std::string("-height"))) {
-			uint32_t h = strtol(args[i + 1], &numConvPtr, 10);
-			if (numConvPtr != args[i + 1]) { height = h; };
-		}
-		// Select between glsl and hlsl shaders
-		if ((args[i] == std::string("-s")) || (args[i] == std::string("--shaders"))) {
-			std::string type;
-			if (args.size() > i + 1) {
-				type = args[i + 1];
-			}
-			if (type == "glsl" || type == "hlsl") {
-				shaderDir = type;
-			} else {
-				std::cerr << args[i] << " must be one of 'glsl' or 'hlsl'" << std::endl;
-			}
-		}
-		// Benchmark
-		if ((args[i] == std::string("-b")) || (args[i] == std::string("--benchmark"))) {
-			benchmark.active = true;
-			vks::tools::errorModeSilent = true;
-		}
-		// Warmup time (in seconds)
-		if ((args[i] == std::string("-bw")) || (args[i] == std::string("--benchwarmup"))) {
-			if (args.size() > i + 1) {
-				uint32_t num = strtol(args[i + 1], &numConvPtr, 10);
-				if (numConvPtr != args[i + 1]) {
-					benchmark.warmup = num;
-				} else {
-					std::cerr << "Warmup time for benchmark mode must be specified as a number!" << std::endl;
-				}
-			}
-		}
-		// Benchmark runtime (in seconds)
-		if ((args[i] == std::string("-br")) || (args[i] == std::string("--benchruntime"))) {
-			if (args.size() > i + 1) {
-				uint32_t num = strtol(args[i + 1], &numConvPtr, 10);
-				if (numConvPtr != args[i + 1]) {
-					benchmark.duration = num;
-				}
-				else {
-					std::cerr << "Benchmark run duration must be specified as a number!" << std::endl;
-				}
-			}
-		}
-		// Bench result save filename (overrides default)
-		if ((args[i] == std::string("-bf")) || (args[i] == std::string("--benchfilename"))) {
-			if (args.size() > i + 1) {
-				if (args[i + 1][0] == '-') {
-					std::cerr << "Filename for benchmark results must not start with a hyphen!" << std::endl;
-				} else {
-					benchmark.filename = args[i + 1];
-				}
-			}
-		}
-		// Output frame times to benchmark result file
-		if ((args[i] == std::string("-bt")) || (args[i] == std::string("--benchframetimes"))) {
-			benchmark.outputFrameTimes = true;
-		}
+	}
+	if (commandLineParser.isSet("benchmark")) {
+		benchmark.active = true;
+		vks::tools::errorModeSilent = true;
+	}
+	if (commandLineParser.isSet("benchmarkwarmup")) {
+		benchmark.warmup = commandLineParser.getValueAsInt("benchmarkwarmup", benchmark.warmup);
+	}
+	if (commandLineParser.isSet("benchmarkruntime")) {
+		benchmark.duration = commandLineParser.getValueAsInt("benchmarkruntime", benchmark.duration);
+	}
+	if (commandLineParser.isSet("benchmarkresultfile")) {
+		benchmark.filename = commandLineParser.getValueAsString("benchmarkresultfile", benchmark.filename);
+	}
+	if (commandLineParser.isSet("benchmarkframetimes")) {
+		benchmark.outputFrameTimes = true;
 	}
 
 #if defined(VK_USE_PLATFORM_ANDROID_KHR)
@@ -716,11 +766,10 @@ VulkanExampleBase::VulkanExampleBase(bool enableValidation)
 #endif
 
 #if defined(_WIN32)
-	// Enable console if validation is active
-	// Debug message callback will output to it
+	// Enable console if validation is active, debug message callback will output to it
 	if (this->settings.validation)
 	{
-		setupConsole("Vulkan validation output");
+		setupConsole("Vulkan example");
 	}
 	setupDPIAwareness();
 #endif
@@ -774,6 +823,17 @@ VulkanExampleBase::~VulkanExampleBase()
 
 #if defined(_DIRECT2DISPLAY)
 
+#elif defined(VK_USE_PLATFORM_DIRECTFB_EXT)
+	if (event_buffer)
+		event_buffer->Release(event_buffer);
+	if (surface)
+		surface->Release(surface);
+	if (window)
+		window->Release(window);
+	if (layer)
+		layer->Release(layer);
+	if (dfb)
+		dfb->Release(dfb);
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 	xdg_toplevel_destroy(xdg_toplevel);
 	xdg_surface_destroy(xdg_surface);
@@ -814,7 +874,7 @@ bool VulkanExampleBase::initVulkan()
 	if (settings.validation)
 	{
 		// The report flags determine what type of messages for the layers will be displayed
-		// For validating (debugging) an appplication the error and warning bits should suffice
+		// For validating (debugging) an application the error and warning bits should suffice
 		VkDebugReportFlagsEXT debugReportFlags = VK_DEBUG_REPORT_ERROR_BIT_EXT | VK_DEBUG_REPORT_WARNING_BIT_EXT;
 		// Additional flags include performance info, loader and layer debug messages, etc.
 		vks::debug::setupDebugging(instance, debugReportFlags, VK_NULL_HANDLE);
@@ -824,7 +884,10 @@ bool VulkanExampleBase::initVulkan()
 	uint32_t gpuCount = 0;
 	// Get number of available physical devices
 	VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &gpuCount, nullptr));
-	assert(gpuCount > 0);
+	if (gpuCount == 0) {
+		vks::tools::exitFatal("No device with Vulkan support found", -1);
+		return false;
+	}
 	// Enumerate devices
 	std::vector<VkPhysicalDevice> physicalDevices(gpuCount);
 	err = vkEnumeratePhysicalDevices(instance, &gpuCount, physicalDevices.data());
@@ -841,57 +904,29 @@ bool VulkanExampleBase::initVulkan()
 
 #if !defined(VK_USE_PLATFORM_ANDROID_KHR)
 	// GPU selection via command line argument
-	for (size_t i = 0; i < args.size(); i++)
-	{
-		// Select GPU
-		if ((args[i] == std::string("-g")) || (args[i] == std::string("-gpu")))
-		{
-			char* endptr;
-			uint32_t index = strtol(args[i + 1], &endptr, 10);
-			if (endptr != args[i + 1])
-			{
-				if (index > gpuCount - 1)
-				{
-					std::cerr << "Selected device index " << index << " is out of range, reverting to device 0 (use -listgpus to show available Vulkan devices)" << std::endl;
-				}
-				else
-				{
-					std::cout << "Selected Vulkan device " << index << std::endl;
-					selectedDevice = index;
-				}
-			};
-			break;
+	if (commandLineParser.isSet("gpuselection")) {
+		uint32_t index = commandLineParser.getValueAsInt("gpuselection", 0);
+		if (index > gpuCount - 1) {
+			std::cerr << "Selected device index " << index << " is out of range, reverting to device 0 (use -listgpus to show available Vulkan devices)" << "\n";
+		} else {
+			selectedDevice = index;
 		}
-		// List available GPUs
-		if (args[i] == std::string("-listgpus"))
-		{
-			uint32_t gpuCount = 0;
-			VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &gpuCount, nullptr));
-			if (gpuCount == 0)
-			{
-				std::cerr << "No Vulkan devices found!" << std::endl;
-			}
-			else
-			{
-				// Enumerate devices
-				std::cout << "Available Vulkan devices" << std::endl;
-				std::vector<VkPhysicalDevice> devices(gpuCount);
-				VK_CHECK_RESULT(vkEnumeratePhysicalDevices(instance, &gpuCount, devices.data()));
-				for (uint32_t i = 0; i < gpuCount; i++) {
-					VkPhysicalDeviceProperties deviceProperties;
-					vkGetPhysicalDeviceProperties(devices[i], &deviceProperties);
-					std::cout << "Device [" << i << "] : " << deviceProperties.deviceName << std::endl;
-					std::cout << " Type: " << vks::tools::physicalDeviceTypeString(deviceProperties.deviceType) << std::endl;
-					std::cout << " API: " << (deviceProperties.apiVersion >> 22) << "." << ((deviceProperties.apiVersion >> 12) & 0x3ff) << "." << (deviceProperties.apiVersion & 0xfff) << std::endl;
-				}
-			}
+	}
+	if (commandLineParser.isSet("gpulist")) {
+		std::cout << "Available Vulkan devices" << "\n";
+		for (uint32_t i = 0; i < gpuCount; i++) {
+			VkPhysicalDeviceProperties deviceProperties;
+			vkGetPhysicalDeviceProperties(physicalDevices[i], &deviceProperties);
+			std::cout << "Device [" << i << "] : " << deviceProperties.deviceName << std::endl;
+			std::cout << " Type: " << vks::tools::physicalDeviceTypeString(deviceProperties.deviceType) << "\n";
+			std::cout << " API: " << (deviceProperties.apiVersion >> 22) << "." << ((deviceProperties.apiVersion >> 12) & 0x3ff) << "." << (deviceProperties.apiVersion & 0xfff) << "\n";
 		}
 	}
 #endif
 
 	physicalDevice = physicalDevices[selectedDevice];
 
-	// Store properties (including limits), features and memory properties of the phyiscal device (so that examples can check against them)
+	// Store properties (including limits), features and memory properties of the physical device (so that examples can check against them)
 	vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
 	vkGetPhysicalDeviceFeatures(physicalDevice, &deviceFeatures);
 	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &deviceMemoryProperties);
@@ -922,10 +957,10 @@ bool VulkanExampleBase::initVulkan()
 	// Create synchronization objects
 	VkSemaphoreCreateInfo semaphoreCreateInfo = vks::initializers::semaphoreCreateInfo();
 	// Create a semaphore used to synchronize image presentation
-	// Ensures that the image is displayed before we start submitting new commands to the queu
+	// Ensures that the image is displayed before we start submitting new commands to the queue
 	VK_CHECK_RESULT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphores.presentComplete));
 	// Create a semaphore used to synchronize command submission
-	// Ensures that the image is not presented until all commands have been sumbitted and executed
+	// Ensures that the image is not presented until all commands have been submitted and executed
 	VK_CHECK_RESULT(vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphores.renderComplete));
 
 	// Set up submit info structure
@@ -938,21 +973,6 @@ bool VulkanExampleBase::initVulkan()
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = &semaphores.renderComplete;
 
-#if defined(VK_USE_PLATFORM_ANDROID_KHR)
-	// Get Android device name and manufacturer (to display along GPU name)
-	androidProduct = "";
-	char prop[PROP_VALUE_MAX+1];
-	int len = __system_property_get("ro.product.manufacturer", prop);
-	if (len > 0) {
-		androidProduct += std::string(prop) + " ";
-	};
-	len = __system_property_get("ro.product.model", prop);
-	if (len > 0) {
-		androidProduct += std::string(prop);
-	};
-	LOGD("androidProduct = %s", androidProduct.c_str());
-#endif
-
 	return true;
 }
 
@@ -963,6 +983,7 @@ void VulkanExampleBase::setupConsole(std::string title)
 	AllocConsole();
 	AttachConsole(GetCurrentProcessId());
 	FILE *stream;
+	freopen_s(&stream, "CONIN$", "r", stdin);
 	freopen_s(&stream, "CONOUT$", "w+", stdout);
 	freopen_s(&stream, "CONOUT$", "w+", stderr);
 	SetConsoleTitle(TEXT(title.c_str()));
@@ -1018,16 +1039,15 @@ HWND VulkanExampleBase::setupWindow(HINSTANCE hinstance, WNDPROC wndproc)
 
 	if (settings.fullscreen)
 	{
-		DEVMODE dmScreenSettings;
-		memset(&dmScreenSettings, 0, sizeof(dmScreenSettings));
-		dmScreenSettings.dmSize = sizeof(dmScreenSettings);
-		dmScreenSettings.dmPelsWidth = screenWidth;
-		dmScreenSettings.dmPelsHeight = screenHeight;
-		dmScreenSettings.dmBitsPerPel = 32;
-		dmScreenSettings.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
-
 		if ((width != (uint32_t)screenWidth) && (height != (uint32_t)screenHeight))
 		{
+			DEVMODE dmScreenSettings;
+			memset(&dmScreenSettings, 0, sizeof(dmScreenSettings));
+			dmScreenSettings.dmSize       = sizeof(dmScreenSettings);
+			dmScreenSettings.dmPelsWidth  = width;
+			dmScreenSettings.dmPelsHeight = height;
+			dmScreenSettings.dmBitsPerPel = 32;
+			dmScreenSettings.dmFields     = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
 			if (ChangeDisplaySettings(&dmScreenSettings, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL)
 			{
 				if (MessageBox(NULL, "Fullscreen Mode not supported!\n Switch to window mode?", "Error", MB_YESNO | MB_ICONEXCLAMATION) == IDYES)
@@ -1039,6 +1059,8 @@ HWND VulkanExampleBase::setupWindow(HINSTANCE hinstance, WNDPROC wndproc)
 					return nullptr;
 				}
 			}
+			screenWidth = width;
+			screenHeight = height;
 		}
 
 	}
@@ -1092,7 +1114,6 @@ HWND VulkanExampleBase::setupWindow(HINSTANCE hinstance, WNDPROC wndproc)
 		printf("Could not create window!\n");
 		fflush(stdout);
 		return nullptr;
-		exit(1);
 	}
 
 	ShowWindow(window, SW_SHOW);
@@ -1130,7 +1151,7 @@ void VulkanExampleBase::handleMessages(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 			break;
 		}
 
-		if (camera.firstperson)
+		if (camera.type == Camera::firstperson)
 		{
 			switch (wParam)
 			{
@@ -1152,7 +1173,7 @@ void VulkanExampleBase::handleMessages(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
 		keyPressed((uint32_t)wParam);
 		break;
 	case WM_KEYUP:
-		if (camera.firstperson)
+		if (camera.type == Camera::firstperson)
 		{
 			switch (wParam)
 			{
@@ -1419,12 +1440,448 @@ void VulkanExampleBase::handleAppCommand(android_app * app, int32_t cmd)
 	}
 }
 #elif (defined(VK_USE_PLATFORM_IOS_MVK) || defined(VK_USE_PLATFORM_MACOS_MVK))
+#if defined(VK_EXAMPLE_XCODE_GENERATED)
+@interface AppDelegate : NSObject<NSApplicationDelegate>
+{
+}
+
+@end
+
+@implementation AppDelegate
+{
+}
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender
+{
+	return YES;
+}
+
+@end
+
+static CVReturn displayLinkOutputCallback(CVDisplayLinkRef displayLink, const CVTimeStamp *inNow,
+	const CVTimeStamp *inOutputTime, CVOptionFlags flagsIn, CVOptionFlags *flagsOut,
+	void *displayLinkContext)
+{
+	@autoreleasepool
+	{
+		auto vulkanExample = static_cast<VulkanExampleBase*>(displayLinkContext);
+			vulkanExample->displayLinkOutputCb();
+	}
+	return kCVReturnSuccess;
+}
+
+@interface View : NSView<NSWindowDelegate>
+{
+@public
+	VulkanExampleBase *vulkanExample;
+}
+
+@end
+
+@implementation View
+{
+	CVDisplayLinkRef displayLink;
+}
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+{
+	self = [super initWithFrame:(frameRect)];
+	if (self)
+	{
+		self.wantsLayer = YES;
+		self.layer = [CAMetalLayer layer];
+	}
+	return self;
+}
+
+- (void)viewDidMoveToWindow
+{
+	CVDisplayLinkCreateWithActiveCGDisplays(&displayLink);
+	CVDisplayLinkSetOutputCallback(displayLink, &displayLinkOutputCallback, vulkanExample);
+	CVDisplayLinkStart(displayLink);
+}
+
+- (BOOL)acceptsFirstResponder
+{
+	return YES;
+}
+
+- (void)keyDown:(NSEvent*)event
+{
+	switch (event.keyCode)
+	{
+		case kVK_ANSI_P:
+			vulkanExample->paused = !vulkanExample->paused;
+			break;
+		case kVK_Escape:
+			[NSApp terminate:nil];
+			break;
+		case kVK_ANSI_W:
+			vulkanExample->camera.keys.up = true;
+			break;
+		case kVK_ANSI_S:
+			vulkanExample->camera.keys.down = true;
+			break;
+		case kVK_ANSI_A:
+			vulkanExample->camera.keys.left = true;
+			break;
+		case kVK_ANSI_D:
+			vulkanExample->camera.keys.right = true;
+			break;
+		default:
+			break;
+	}
+}
+
+- (void)keyUp:(NSEvent*)event
+{
+	switch (event.keyCode)
+	{
+		case kVK_ANSI_W:
+			vulkanExample->camera.keys.up = false;
+			break;
+		case kVK_ANSI_S:
+			vulkanExample->camera.keys.down = false;
+			break;
+		case kVK_ANSI_A:
+			vulkanExample->camera.keys.left = false;
+		break;
+			case kVK_ANSI_D:
+		vulkanExample->camera.keys.right = false;
+			break;
+		default:
+			break;
+	}
+}
+
+- (NSPoint)getMouseLocalPoint:(NSEvent*)event
+{
+	NSPoint location = [event locationInWindow];
+	NSPoint point = [self convertPoint:location fromView:nil];
+	point.y = self.frame.size.height - point.y;
+	return point;
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+	auto point = [self getMouseLocalPoint:event];
+	vulkanExample->mousePos = glm::vec2(point.x, point.y);
+	vulkanExample->mouseButtons.left = true;
+}
+
+- (void)mouseUp:(NSEvent *)event
+{
+	auto point = [self getMouseLocalPoint:event];
+	vulkanExample->mousePos = glm::vec2(point.x, point.y);
+	vulkanExample->mouseButtons.left = false;
+}
+
+- (void)otherMouseDown:(NSEvent *)event
+{
+	vulkanExample->mouseButtons.right = true;
+}
+
+- (void)otherMouseUp:(NSEvent *)event
+{
+	vulkanExample->mouseButtons.right = false;
+}
+
+- (void)mouseDragged:(NSEvent *)event
+{
+	auto point = [self getMouseLocalPoint:event];
+	vulkanExample->mouseDragged(point.x, point.y);
+}
+
+- (void)mouseMoved:(NSEvent *)event
+{
+	auto point = [self getMouseLocalPoint:event];
+	vulkanExample->mouseDragged(point.x, point.y);
+}
+
+- (void)scrollWheel:(NSEvent *)event
+{
+	short wheelDelta = [event deltaY];
+	vulkanExample->camera.translate(glm::vec3(0.0f, 0.0f,
+		-(float)wheelDelta * 0.05f * vulkanExample->camera.movementSpeed));
+}
+
+- (NSSize)windowWillResize:(NSWindow *)sender toSize:(NSSize)frameSize
+{
+	CVDisplayLinkStop(displayLink);
+	vulkanExample->windowWillResize(frameSize.width, frameSize.height);
+	return frameSize;
+}
+
+- (void)windowDidResize:(NSNotification *)notification
+{
+	vulkanExample->windowDidResize();
+	CVDisplayLinkStart(displayLink);
+}
+
+- (BOOL)windowShouldClose:(NSWindow *)sender
+{
+	return TRUE;
+}
+
+- (void)windowWillClose:(NSNotification *)notification
+{
+	CVDisplayLinkStop(displayLink);
+}
+
+@end
+#endif
+
 void* VulkanExampleBase::setupWindow(void* view)
 {
+#if defined(VK_EXAMPLE_XCODE_GENERATED)
+	NSApp = [NSApplication sharedApplication];
+	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+	[NSApp setDelegate:[AppDelegate new]];
+
+	const auto kContentRect = NSMakeRect(0.0f, 0.0f, width, height);
+	const auto kWindowStyle = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskResizable;
+
+	auto window = [[NSWindow alloc] initWithContentRect:kContentRect
+											  styleMask:kWindowStyle
+												backing:NSBackingStoreBuffered
+												  defer:NO];
+	[window setTitle:@(title.c_str())];
+	[window setAcceptsMouseMovedEvents:YES];
+	[window center];
+	[window makeKeyAndOrderFront:nil];
+
+	auto nsView = [[View alloc] initWithFrame:kContentRect];
+	nsView->vulkanExample = this;
+	[window setDelegate:nsView];
+	[window setContentView:nsView];
+	this->view = (__bridge void*)nsView;
+#else
 	this->view = view;
+#endif
 	return view;
 }
+
+void VulkanExampleBase::displayLinkOutputCb()
+{
+	if (prepared)
+		nextFrame();
+}
+
+void VulkanExampleBase::mouseDragged(float x, float y)
+{
+	handleMouseMove(static_cast<uint32_t>(x), static_cast<uint32_t>(y));
+}
+
+void VulkanExampleBase::windowWillResize(float x, float y)
+{
+	resizing = true;
+	if (prepared)
+	{
+		destWidth = x;
+		destHeight = y;
+		windowResize();
+	}
+}
+
+void VulkanExampleBase::windowDidResize()
+{
+	resizing = false;
+}
 #elif defined(_DIRECT2DISPLAY)
+#elif defined(VK_USE_PLATFORM_DIRECTFB_EXT)
+IDirectFBSurface *VulkanExampleBase::setupWindow()
+{
+	DFBResult ret;
+	int posx = 0, posy = 0;
+
+	ret = DirectFBInit(NULL, NULL);
+	if (ret)
+	{
+		std::cout << "Could not initialize DirectFB!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	ret = DirectFBCreate(&dfb);
+	if (ret)
+	{
+		std::cout << "Could not create main interface of DirectFB!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	ret = dfb->GetDisplayLayer(dfb, DLID_PRIMARY, &layer);
+	if (ret)
+	{
+		std::cout << "Could not get DirectFB display layer interface!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	DFBDisplayLayerConfig layer_config;
+	ret = layer->GetConfiguration(layer, &layer_config);
+	if (ret)
+	{
+		std::cout << "Could not get DirectFB display layer configuration!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	if (settings.fullscreen)
+	{
+		width = layer_config.width;
+		height = layer_config.height;
+	}
+	else
+	{
+		if (layer_config.width > width)
+			posx = (layer_config.width - width) / 2;
+		if (layer_config.height > height)
+			posy = (layer_config.height - height) / 2;
+	}
+
+	DFBWindowDescription desc;
+	desc.flags = (DFBWindowDescriptionFlags)(DWDESC_WIDTH | DWDESC_HEIGHT | DWDESC_POSX | DWDESC_POSY);
+	desc.width = width;
+	desc.height = height;
+	desc.posx = posx;
+	desc.posy = posy;
+	ret = layer->CreateWindow(layer, &desc, &window);
+	if (ret)
+	{
+		std::cout << "Could not create DirectFB window interface!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	ret = window->GetSurface(window, &surface);
+	if (ret)
+	{
+		std::cout << "Could not get DirectFB surface interface!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	ret = window->CreateEventBuffer(window, &event_buffer);
+	if (ret)
+	{
+		std::cout << "Could not create DirectFB event buffer interface!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	ret = window->SetOpacity(window, 0xFF);
+	if (ret)
+	{
+		std::cout << "Could not set DirectFB window opacity!\n";
+		fflush(stdout);
+		exit(1);
+	}
+
+	return surface;
+}
+
+void VulkanExampleBase::handleEvent(const DFBWindowEvent *event)
+{
+	switch (event->type)
+	{
+	case DWET_CLOSE:
+		quit = true;
+		break;
+	case DWET_MOTION:
+		handleMouseMove(event->x, event->y);
+		break;
+	case DWET_BUTTONDOWN:
+		switch (event->button)
+		{
+		case DIBI_LEFT:
+			mouseButtons.left = true;
+			break;
+		case DIBI_MIDDLE:
+			mouseButtons.middle = true;
+			break;
+		case DIBI_RIGHT:
+			mouseButtons.right = true;
+			break;
+		default:
+			break;
+		}
+		break;
+	case DWET_BUTTONUP:
+		switch (event->button)
+		{
+		case DIBI_LEFT:
+			mouseButtons.left = false;
+			break;
+		case DIBI_MIDDLE:
+			mouseButtons.middle = false;
+			break;
+		case DIBI_RIGHT:
+			mouseButtons.right = false;
+			break;
+		default:
+			break;
+		}
+		break;
+	case DWET_KEYDOWN:
+		switch (event->key_symbol)
+		{
+			case KEY_W:
+				camera.keys.up = true;
+				break;
+			case KEY_S:
+				camera.keys.down = true;
+				break;
+			case KEY_A:
+				camera.keys.left = true;
+				break;
+			case KEY_D:
+				camera.keys.right = true;
+				break;
+			case KEY_P:
+				paused = !paused;
+				break;
+			case KEY_F1:
+				if (settings.overlay) {
+					settings.overlay = !settings.overlay;
+				}
+				break;
+			default:
+				break;
+		}
+		break;
+	case DWET_KEYUP:
+		switch (event->key_symbol)
+		{
+			case KEY_W:
+				camera.keys.up = false;
+				break;
+			case KEY_S:
+				camera.keys.down = false;
+				break;
+			case KEY_A:
+				camera.keys.left = false;
+				break;
+			case KEY_D:
+				camera.keys.right = false;
+				break;
+			case KEY_ESCAPE:
+				quit = true;
+				break;
+			default:
+				break;
+		}
+		keyPressed(event->key_symbol);
+		break;
+	case DWET_SIZE:
+		destWidth = event->w;
+		destHeight = event->h;
+		windowResize();
+		break;
+	default:
+		break;
+	}
+}
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 /*static*/void VulkanExampleBase::registryGlobalCb(void *data,
 		wl_registry *registry, uint32_t name, const char *interface,
@@ -1800,6 +2257,18 @@ xcb_window_t VulkanExampleBase::setupWindow()
 
 	free(reply);
 
+	/**
+	 * Set the WM_CLASS property to display
+	 * title in dash tooltip and application menu
+	 * on GNOME and other desktop environments
+	 */
+	std::string wm_class;
+	wm_class = wm_class.insert(0, name);
+	wm_class = wm_class.insert(name.size(), 1, '\0');
+	wm_class = wm_class.insert(name.size() + 1, title);
+	wm_class = wm_class.insert(wm_class.size(), 1, '\0');
+	xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window, XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 8, wm_class.size() + 2, wm_class.c_str());
+
 	if (settings.fullscreen)
 	{
 		xcb_intern_atom_reply_t *atom_wm_state = intern_atom_helper(connection, false, "_NET_WM_STATE");
@@ -1825,8 +2294,13 @@ void VulkanExampleBase::initxcbConnection()
 	xcb_screen_iterator_t iter;
 	int scr;
 
+	// xcb_connect always returns a non-NULL pointer to a xcb_connection_t,
+	// even on failure. Callers need to use xcb_connection_has_error() to
+	// check for failure. When finished, use xcb_disconnect() to close the
+	// connection and free the structure.
 	connection = xcb_connect(NULL, &scr);
-	if (connection == NULL) {
+	assert( connection );
+	if( xcb_connection_has_error(connection) ) {
 		printf("Could not find a compatible Vulkan ICD!\n");
 		fflush(stdout);
 		exit(1);
@@ -2119,10 +2593,7 @@ void VulkanExampleBase::setupRenderPass()
 	VK_CHECK_RESULT(vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass));
 }
 
-void VulkanExampleBase::getEnabledFeatures()
-{
-	// Can be overriden in derived class
-}
+void VulkanExampleBase::getEnabledFeatures() {}
 
 void VulkanExampleBase::windowResize()
 {
@@ -2131,6 +2602,7 @@ void VulkanExampleBase::windowResize()
 		return;
 	}
 	prepared = false;
+	resized = true;
 
 	// Ensure all operations on the device have been finished before destroying resources
 	vkDeviceWaitIdle(device);
@@ -2208,10 +2680,7 @@ void VulkanExampleBase::handleMouseMove(int32_t x, int32_t y)
 	mousePos = glm::vec2((float)x, (float)y);
 }
 
-void VulkanExampleBase::windowResized()
-{
-	// Can be overriden in derived class
-}
+void VulkanExampleBase::windowResized() {}
 
 void VulkanExampleBase::initSwapchain()
 {
@@ -2223,6 +2692,8 @@ void VulkanExampleBase::initSwapchain()
 	swapChain.initSurface(view);
 #elif defined(_DIRECT2DISPLAY)
 	swapChain.initSurface(width, height);
+#elif defined(VK_USE_PLATFORM_DIRECTFB_EXT)
+	swapChain.initSurface(dfb, surface);
 #elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 	swapChain.initSurface(display, surface);
 #elif defined(VK_USE_PLATFORM_XCB_KHR)
@@ -2236,3 +2707,103 @@ void VulkanExampleBase::setupSwapChain()
 }
 
 void VulkanExampleBase::OnUpdateUIOverlay(vks::UIOverlay *overlay) {}
+
+// Command line argument parser class
+
+CommandLineParser::CommandLineParser()
+{
+	add("help", { "--help" }, 0, "Show help");
+	add("validation", {"-v", "--validation"}, 0, "Enable validation layers");
+	add("vsync", {"-vs", "--vsync"}, 0, "Enable V-Sync");
+	add("fullscreen", { "-f", "--fullscreen" }, 0, "Start in fullscreen mode");
+	add("width", { "-w", "--width" }, 1, "Set window width");
+	add("height", { "-h", "--height" }, 1, "Set window height");
+	add("shaders", { "-s", "--shaders" }, 1, "Select shader type to use (glsl or hlsl)");
+	add("gpuselection", { "-g", "--gpu" }, 1, "Select GPU to run on");
+	add("gpulist", { "-gl", "--listgpus" }, 0, "Display a list of available Vulkan devices");
+	add("benchmark", { "-b", "--benchmark" }, 0, "Run example in benchmark mode");
+	add("benchmarkwarmup", { "-bw", "--benchwarmup" }, 1, "Set warmup time for benchmark mode in seconds");
+	add("benchmarkruntime", { "-br", "--benchruntime" }, 1, "Set duration time for benchmark mode in seconds");
+	add("benchmarkresultfile", { "-bf", "--benchfilename" }, 1, "Set file name for benchmark results");
+	add("benchmarkresultframes", { "-bt", "--benchframetimes" }, 1, "Save frame times to benchmark results file");
+}
+
+void CommandLineParser::add(std::string name, std::vector<std::string> commands, bool hasValue, std::string help)
+{
+	options[name].commands = commands;
+	options[name].help = help;
+	options[name].set = false;
+	options[name].hasValue = hasValue;
+	options[name].value = "";
+}
+
+void CommandLineParser::printHelp()
+{
+	std::cout << "Available command line options:\n";
+	for (auto option : options) {
+		std::cout << " ";
+		for (size_t i = 0; i < option.second.commands.size(); i++) {
+			std::cout << option.second.commands[i];
+			if (i < option.second.commands.size() - 1) {
+				std::cout << ", ";
+			}
+		}
+		std::cout << ": " << option.second.help << "\n";
+	}
+	std::cout << "Press any key to close...";
+}
+
+void CommandLineParser::parse(std::vector<const char*> arguments)
+{
+	bool printHelp = false;
+	// Known arguments
+	for (auto& option : options) {
+		for (auto& command : option.second.commands) {
+			for (size_t i = 0; i < arguments.size(); i++) {
+				if (strcmp(arguments[i], command.c_str()) == 0) {
+					option.second.set = true;
+					// Get value
+					if (option.second.hasValue) {
+						if (arguments.size() > i + 1) {
+							option.second.value = arguments[i + 1];
+						}
+						if (option.second.value == "") {
+							printHelp = true;
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+	// Print help for unknown arguments or missing argument values
+	if (printHelp) {
+		options["help"].set = true;
+	}
+}
+
+bool CommandLineParser::isSet(std::string name)
+{
+	return ((options.find(name) != options.end()) && options[name].set);
+}
+
+std::string CommandLineParser::getValueAsString(std::string name, std::string defaultValue)
+{
+	assert(options.find(name) != options.end());
+	std::string value = options[name].value;
+	return (value != "") ? value : defaultValue;
+}
+
+int32_t CommandLineParser::getValueAsInt(std::string name, int32_t defaultValue)
+{
+	assert(options.find(name) != options.end());
+	std::string value = options[name].value;
+	if (value != "") {
+		char* numConvPtr;
+		int32_t intVal = strtol(value.c_str(), &numConvPtr, 10);
+		return (intVal > 0) ? intVal : defaultValue;
+	} else {
+		return defaultValue;
+	}
+	return int32_t();
+}

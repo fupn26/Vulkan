@@ -11,6 +11,7 @@ function(buildExample EXAMPLE_NAME)
 	if(EXISTS ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.h)
 		SET(MAIN_HEADER ${EXAMPLE_FOLDER}/${EXAMPLE_NAME}.h)
 	ENDIF()
+	find_package(OpenMP)
 	# imgui example requires additional source files
 	IF(${EXAMPLE_NAME} STREQUAL "imgui")
 		file(GLOB ADD_SOURCE "../external/imgui/*.cpp")
@@ -31,13 +32,21 @@ function(buildExample EXAMPLE_NAME)
 	file(GLOB README_FILES "${EXAMPLE_FOLDER}/*.md")
 	if(WIN32)
 		add_executable(${EXAMPLE_NAME} WIN32 ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS_GLSL} ${SHADERS_HLSL} ${README_FILES})
-		target_link_libraries(${EXAMPLE_NAME} base ${Vulkan_LIBRARY} ${ASSIMP_LIBRARIES} ${WINLIBS})
+		target_link_libraries(${EXAMPLE_NAME} base ${Vulkan_LIBRARY} ${WINLIBS})
 	else(WIN32)
 		add_executable(${EXAMPLE_NAME} ${MAIN_CPP} ${SOURCE} ${MAIN_HEADER} ${SHADERS_GLSL} ${SHADERS_HLSL} ${README_FILES})
 		target_link_libraries(${EXAMPLE_NAME} base )
 	endif(WIN32)
 
 	set_target_properties(${EXAMPLE_NAME} PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+	if(OpenMP_CXX_FOUND)
+		target_compile_options(${EXAMPLE_NAME} PRIVATE ${OpenMP_CXX_FLAGS})
+		IF(${EXAMPLE_NAME} STREQUAL "texture3d")
+			if(OpenMP_CXX_FOUND)
+    			target_link_libraries(${EXAMPLE_NAME} OpenMP::OpenMP_CXX)
+			endif()	
+		endif()
+	endif()
 
 	if(RESOURCE_INSTALL_DIR)
 		install(TARGETS ${EXAMPLE_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})
@@ -66,6 +75,7 @@ set(EXAMPLES
 	deferred
 	deferredmultisampling
 	deferredshadows
+	descriptorindexing
 	descriptorsets
 	displacement
 	distancefieldfonts
@@ -84,12 +94,10 @@ set(EXAMPLES
 	multisampling
 	multithreading
 	multiview
-	negativeviewportheight
-	nv_ray_tracing_basic
-	nv_ray_tracing_shadows
-	nv_ray_tracing_reflections
+	negativeviewportheight	
 	occlusionquery
 	offscreen
+	oit
 	parallaxmapping
 	particlefire
 	pbrbasic
@@ -100,6 +108,11 @@ set(EXAMPLES
 	pushconstants
 	pushdescriptors
 	radialblur
+	rayquery
+	raytracingbasic
+	raytracingcallable
+	raytracingreflections
+	raytracingshadows	
 	renderheadless
 	screenshot
 	shadowmapping
@@ -117,9 +130,11 @@ set(EXAMPLES
 	texture3d
 	texturearray
 	texturecubemap
+	texturecubemaparray
 	texturemipmapgen
 	texturesparseresidency
 	triangle
+	variablerateshading
 	viewportarray
 	vulkanscene
 )

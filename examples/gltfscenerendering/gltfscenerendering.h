@@ -12,18 +12,6 @@
 * This sample comes with a tutorial, see the README.md in this folder
 */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include <vector>
-
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #define TINYGLTF_NO_STB_IMAGE_WRITE
@@ -34,10 +22,7 @@
 #endif
 #include "tiny_gltf.h"
 
-#include <vulkan/vulkan.h>
 #include "vulkanexamplebase.h"
-#include "VulkanTexture.hpp"
-
 
 #define ENABLE_VALIDATION false
 
@@ -98,7 +83,7 @@ public:
 		bool visible = true;
 	};
 
-	// A glTF material stores information in e.g. the exture that is attached to it and colors
+	// A glTF material stores information in e.g. the texture that is attached to it and colors
 	struct Material {
 		glm::vec4 baseColorFactor = glm::vec4(1.0f);
 		uint32_t baseColorTextureIndex;
@@ -111,7 +96,7 @@ public:
 	};
 
 	// Contains the texture for a single glTF image
-	// Images may be reused by texture objects and are as such separted
+	// Images may be reused by texture objects and are as such separated
 	struct Image {
 		vks::Texture2D texture;
 	};

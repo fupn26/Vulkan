@@ -53,7 +53,7 @@
 	VkResult res = (f);																					\
 	if (res != VK_SUCCESS)																				\
 	{																									\
-		std::cout << "Fatal : VkResult is \"" << vks::tools::errorString(res) << "\" in " << __FILE__ << " at line " << __LINE__ << std::endl; \
+		std::cout << "Fatal : VkResult is \"" << vks::tools::errorString(res) << "\" in " << __FILE__ << " at line " << __LINE__ << "\n"; \
 		assert(res == VK_SUCCESS);																		\
 	}																									\
 }
@@ -100,7 +100,7 @@ namespace vks
 			VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
 			VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 
-		/** @brief Inser an image memory barrier into the command buffer */
+		/** @brief Insert an image memory barrier into the command buffer */
 		void insertImageMemoryBarrier(
 			VkCommandBuffer cmdbuffer,
 			VkImage image,
@@ -113,8 +113,8 @@ namespace vks
 			VkImageSubresourceRange subresourceRange);
 
 		// Display error message and exit on fatal error
-		void exitFatal(std::string message, int32_t exitCode);
-		void exitFatal(std::string message, VkResult resultCode);
+		void exitFatal(const std::string& message, int32_t exitCode);
+		void exitFatal(const std::string& message, VkResult resultCode);
 
 		// Load a SPIR-V shader (binary)
 #if defined(__ANDROID__)
@@ -125,5 +125,7 @@ namespace vks
 
 		/** @brief Checks if a file exists */
 		bool fileExists(const std::string &filename);
+
+		uint32_t alignedSize(uint32_t value, uint32_t alignment);
 	}
 }
